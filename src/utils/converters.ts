@@ -13,10 +13,11 @@ export const extractColor = (val: number, mask: number): number =>
   extractBitMask(val, mask) / 0b111;
 
 /**
- * Utility to generate an filled with byte offsets for each segment
+ * Utility to generate an array filled with byte offsets for each segment.
+ * Uses Math.floor to handle trailing bytes (e.g., CDJ 3000 beat grid data).
  */
 export const makeOffsetArray = (byteLength: number, segmentSize: number) =>
-  new Array(byteLength / segmentSize).fill(null).map((_, i) => i * segmentSize);
+  new Array(Math.floor(byteLength / segmentSize)).fill(null).map((_, i) => i * segmentSize);
 
 /**
  * Convert raw waveform HD data into the structured WaveformHD type
