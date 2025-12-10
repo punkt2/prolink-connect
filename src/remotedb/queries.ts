@@ -157,20 +157,21 @@ async function getGenericMetadata(opts: TrackQueryOpts) {
   }
 
   // Translate our fileItems into a (partial) Track entity.
+  // Use optional chaining since CDJ 3000 doesn't return all item types for unanalyzed tracks
   const track: entities.Track = {
-    id: fileItems[ItemType.TrackTitle].id,
-    title: fileItems[ItemType.TrackTitle].title,
-    duration: fileItems[ItemType.Duration].duration,
-    tempo: fileItems[ItemType.Tempo].bpm,
-    comment: fileItems[ItemType.Comment].comment,
-    rating: fileItems[ItemType.Rating].rating,
-    bitrate: fileItems[ItemType.BitRate].bitrate,
+    id: fileItems[ItemType.TrackTitle]?.id ?? 0,
+    title: fileItems[ItemType.TrackTitle]?.title ?? '',
+    duration: fileItems[ItemType.Duration]?.duration ?? 0,
+    tempo: fileItems[ItemType.Tempo]?.bpm ?? 0,
+    comment: fileItems[ItemType.Comment]?.comment ?? '',
+    rating: fileItems[ItemType.Rating]?.rating ?? 0,
+    bitrate: fileItems[ItemType.BitRate]?.bitrate ?? 0,
 
-    artwork: {id: fileItems[ItemType.TrackTitle].artworkId},
-    album: fileItems?.[ItemType.AlbumTitle],
-    artist: fileItems[ItemType.Artist],
-    genre: fileItems[ItemType.Genre],
-    color: findColor(Object.values(fileItems))!,
+    artwork: {id: fileItems[ItemType.TrackTitle]?.artworkId ?? 0},
+    album: fileItems?.[ItemType.AlbumTitle] ?? null,
+    artist: fileItems?.[ItemType.Artist] ?? null,
+    genre: fileItems?.[ItemType.Genre] ?? null,
+    color: findColor(Object.values(fileItems)) ?? null,
 
     fileName: '',
     filePath: '',
