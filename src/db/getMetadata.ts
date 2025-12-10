@@ -44,9 +44,13 @@ export async function viaRemote(remote: RemoteDatabase, opts: Required<Options>)
     menuTarget: MenuTarget.Main,
   };
 
+  // Use GetGenericMetadata for unanalyzed tracks, GetMetadata for Rekordbox-analyzed
+  const metadataQuery =
+    trackType === TrackType.Unanalyzed ? Query.GetGenericMetadata : Query.GetMetadata;
+
   const track = await conn.query({
     queryDescriptor,
-    query: Query.GetMetadata,
+    query: metadataQuery,
     args: {trackId},
     span,
   });
