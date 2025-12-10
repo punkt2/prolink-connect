@@ -295,17 +295,20 @@ export default class RemoteDatabase {
 
     const releaseLock = await lock.acquire();
 
-    let conn = this.#connections.get(deviceId);
-    if (conn === undefined) {
-      await this.connectToDevice(device);
+    try {
+      let conn = this.#connections.get(deviceId);
+      if (conn === undefined) {
+        await this.connectToDevice(device);
+      }
+
+      conn = this.#connections.get(deviceId)!;
+
+      // NOTE: We pass the same lock we use for this device to the query
+      // interface to ensure all query interfaces use the same lock.
+
+      return new QueryInterface(conn, lock, this.#hostDevice);
+    } finally {
+      releaseLock();
     }
-
-    conn = this.#connections.get(deviceId)!;
-    releaseLock();
-
-    // NOTE: We pass the same lock we use for this device to the query
-    // interface to ensure all query interfaces use the same lock.
-
-    return new QueryInterface(conn, lock, this.#hostDevice);
   }
 }
