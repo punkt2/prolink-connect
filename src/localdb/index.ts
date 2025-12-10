@@ -162,6 +162,18 @@ class LocalDatabase {
   }
 
   /**
+   * Closes the local database, removing event listeners and cleaning up resources.
+   */
+  close() {
+    this.#deviceManager.off('disconnected', this.#handleDeviceRemoved);
+
+    for (const db of this.#dbs) {
+      db.orm.close();
+    }
+    this.#dbs = [];
+  }
+
+  /**
    * Closes the database connection and removes the database entry when a
    * device is removed.
    */
