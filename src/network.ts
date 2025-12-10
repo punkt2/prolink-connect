@@ -263,6 +263,9 @@ export class ProlinkNetwork {
       this.localdb?.disconnectForDevice(device);
     }
 
+    // Close the local database and remove event listener
+    this.#connection?.localdb.close();
+
     return Promise.all([
       udpClose(this.#announceSocket),
       udpClose(this.#statusSocket),
