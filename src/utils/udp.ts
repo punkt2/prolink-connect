@@ -27,10 +27,23 @@ export function udpBind(conn: Socket, arg1?: any, arg2?: any): Promise<AddressIn
 }
 
 /**
- * Async version of udp socket read
+ * Async version of udp socket read.
+ *
+ * Returns an object with:
+ * - `promise`: The promise that resolves when a message is received
+ * - `cancel`: A function to remove the listener (call this on timeout to prevent leaks)
  */
 export function udpRead(conn: Socket) {
-  return new Promise<Buffer>(resolve => conn.once('message', resolve));
+  let handler: (msg: Buffer) => void;
+
+  const promise = new Promise<Buffer>(resolve => {
+    handler = resolve;
+    conn.once('message', handler);
+  });
+
+  const cancel = () => conn.off('message', handler);
+
+  return {promise, cancel};
 }
 
 /**
