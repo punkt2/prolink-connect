@@ -178,7 +178,7 @@ export async function fetchFile({
 
   try {
     fileInfo = await lookupPath(nfsClient, rootHandle, path, tx);
-  } catch {
+  } catch (firstError) {
     rootHandleCache.delete(device.ip.address);
     const rootHandle = await getRootHandle({device, slot, mountClient, span: tx});
 
@@ -187,7 +187,14 @@ export async function fetchFile({
     }
 
     // Desperately try once more to lookup the file
-    fileInfo = await lookupPath(nfsClient, rootHandle, path, tx);
+    try {
+      fileInfo = await lookupPath(nfsClient, rootHandle, path, tx);
+    } catch (retryError) {
+      throw new Error(
+        `Failed to lookup path "${path}" after retry. ` +
+          `Original error: ${firstError}. Retry error: ${retryError}`
+      );
+    }
   }
 
   const file = await fetchFileCall(nfsClient, fileInfo, onProgress, tx);
