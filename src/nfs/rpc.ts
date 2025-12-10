@@ -129,6 +129,9 @@ export class RpcConnection {
           return await executeWithTimeout();
         } catch (err) {
           if (err instanceof TimeoutError) {
+            console.warn(
+              `[prolink-connect] RPC call to ${this.address}:${port} timed out, retrying...`
+            );
             retry(err);
           } else {
             throw err;
