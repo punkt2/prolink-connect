@@ -186,26 +186,32 @@ class LocalDatabase {
    * Downloads and hydrates a new in-memory sqlite database
    */
   #hydrateDatabase = async (device: Device, slot: DatabaseSlot, media: MediaSlotInfo) => {
+    console.log(`[METADATA_DEBUG] #hydrateDatabase START - deviceId=${device.id}, slot=${getSlotName(slot)}, trackCount=${media.trackCount}`);
     const tx = Sentry.startTransaction({name: 'hydrateDatabase'});
 
     tx.setTag('slot', getSlotName(media.slot));
     tx.setData('numTracks', media.trackCount.toString());
 
+    console.log(`[METADATA_DEBUG] #hydrateDatabase - creating ORM...`);
     const dbCreateTx = tx.startChild({op: 'setupDatabase'});
     const orm = new MetadataORM();
     dbCreateTx.finish();
+    console.log(`[METADATA_DEBUG] #hydrateDatabase - ORM created`);
 
     let pdbData = Buffer.alloc(0);
 
-    const fetchPdbData = async (path: string) =>
-      (pdbData = await fetchFile({
+    const fetchPdbData = async (path: string) => {
+      console.log(`[METADATA_DEBUG] #hydrateDatabase - fetching PDB file: ${path}...`);
+      pdbData = await fetchFile({
         device,
         slot,
         path,
         span: tx,
         onProgress: progress =>
           this.#emitter.emit('fetchProgress', {device, slot, progress}),
-      }));
+      });
+      console.log(`[METADATA_DEBUG] #hydrateDatabase - PDB file fetched, size=${pdbData.length}`);
+    };
 
     // Rekordbox exports to both the `.PIONEER` and `PIONEER` folder, depending
     // on the media devices filesystem (HFS, FAT32, etc). Unfortunately there's no
@@ -221,9 +227,11 @@ class LocalDatabase {
     try {
       await fetchPdbData(attemptOrder[0]);
     } catch {
+      console.log(`[METADATA_DEBUG] #hydrateDatabase - first path failed, trying alternate...`);
       await fetchPdbData(attemptOrder[1]);
     }
 
+    console.log(`[METADATA_DEBUG] #hydrateDatabase - hydrating database...`);
     await hydrateDatabase({
       orm,
       pdbData,
@@ -231,6 +239,7 @@ class LocalDatabase {
       onProgress: progress =>
         this.#emitter.emit('hydrationProgress', {device, slot, progress}),
     });
+    console.log(`[METADATA_DEBUG] #hydrateDatabase - database hydrated`);
     this.#emitter.emit('hydrationDone', {device, slot});
 
     const db = {orm, media, id: getMediaId(media)};
@@ -238,6 +247,7 @@ class LocalDatabase {
 
     tx.finish();
 
+    console.log(`[METADATA_DEBUG] #hydrateDatabase END - database ready`);
     return db;
   };
 
@@ -251,6 +261,7 @@ class LocalDatabase {
    * @returns null if no rekordbox media present
    */
   async get(deviceId: DeviceID, slot: DatabaseSlot) {
+    console.log(`[METADATA_DEBUG] LocalDatabase.get START - deviceId=${deviceId}, slot=${slot}`);
     const lockKey = `${deviceId}-${slot}`;
     const lock =
       this.#slotLocks.get(lockKey) ??
@@ -258,6 +269,7 @@ class LocalDatabase {
 
     const device = this.#deviceManager.devices.get(deviceId);
     if (device === undefined) {
+      console.log(`[METADATA_DEBUG] LocalDatabase.get - device not found, returning null`);
       return null;
     }
 
@@ -265,13 +277,16 @@ class LocalDatabase {
       throw new Error('Cannot create database from devices that are not CDJs');
     }
 
+    console.log(`[METADATA_DEBUG] LocalDatabase.get - querying media slot...`);
     const media = await this.#statusEmitter.queryMediaSlot({
       hostDevice: this.#hostDevice,
       device,
       slot,
     });
+    console.log(`[METADATA_DEBUG] LocalDatabase.get - media slot queried, tracksType=${media.tracksType}, trackCount=${media.trackCount}`);
 
     if (media.tracksType !== TrackType.RB) {
+      console.log(`[METADATA_DEBUG] LocalDatabase.get - not rekordbox media, returning null`);
       return null;
     }
 
@@ -279,11 +294,20 @@ class LocalDatabase {
 
     // Acquire a lock for this device slot that will not release until we've
     // guaranteed the existence of the database.
-    const db = await lock.runExclusive(
-      () =>
-        this.#dbs.find(db => db.id === id) ?? this.#hydrateDatabase(device, slot, media)
-    );
+    console.log(`[METADATA_DEBUG] LocalDatabase.get - acquiring slot lock...`);
+    const db = await lock.runExclusive(async () => {
+      console.log(`[METADATA_DEBUG] LocalDatabase.get - slot lock acquired`);
+      const existingDb = this.#dbs.find(db => db.id === id);
+      if (existingDb) {
+        console.log(`[METADATA_DEBUG] LocalDatabase.get - using existing database`);
+        return existingDb;
+      }
+      console.log(`[METADATA_DEBUG] LocalDatabase.get - no existing database, hydrating...`);
+      return this.#hydrateDatabase(device, slot, media);
+    });
+    console.log(`[METADATA_DEBUG] LocalDatabase.get - slot lock released`);
 
+    console.log(`[METADATA_DEBUG] LocalDatabase.get END - returning ORM`);
     return db.orm;
   }
 

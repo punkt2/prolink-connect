@@ -91,25 +91,36 @@ export async function viaLocal(
 ) {
   const {deviceId, trackSlot, trackId} = opts;
 
+  console.log(`[METADATA_DEBUG] viaLocal START - deviceId=${deviceId}, trackId=${trackId}, trackSlot=${trackSlot}`);
+
   if (trackSlot !== MediaSlot.USB && trackSlot !== MediaSlot.SD) {
     throw new Error('Expected USB or SD slot for local database query');
   }
 
+  console.log(`[METADATA_DEBUG] viaLocal - getting local database...`);
   const orm = await local.get(deviceId, trackSlot);
   if (orm === null) {
+    console.log(`[METADATA_DEBUG] viaLocal - orm is null, returning null`);
     return null;
   }
+  console.log(`[METADATA_DEBUG] viaLocal - got local database`);
 
+  console.log(`[METADATA_DEBUG] viaLocal - finding track...`);
   const track = orm.findTrack(trackId);
 
   if (track === null) {
+    console.log(`[METADATA_DEBUG] viaLocal - track not found, returning null`);
     return null;
   }
+  console.log(`[METADATA_DEBUG] viaLocal - found track: ${track.title}`);
 
+  console.log(`[METADATA_DEBUG] viaLocal - loading ANLZ data...`);
   const anlz = await loadAnlz(track, 'DAT', anlzLoader({device, slot: trackSlot}));
+  console.log(`[METADATA_DEBUG] viaLocal - ANLZ data loaded`);
 
   track.beatGrid = anlz.beatGrid;
   track.cueAndLoops = anlz.cueAndLoops;
 
+  console.log(`[METADATA_DEBUG] viaLocal END - returning track`);
   return track;
 }
