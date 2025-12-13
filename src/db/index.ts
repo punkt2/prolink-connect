@@ -90,6 +90,8 @@ class Database {
   async getMetadata(opts: GetMetadata.Options) {
     const {deviceId, trackType, trackSlot, span} = opts;
 
+    console.log(`[METADATA_DEBUG] Database.getMetadata START - deviceId=${deviceId}, trackType=${trackType}, trackSlot=${trackSlot}, trackId=${opts.trackId}`);
+
     const tx = span
       ? span.startChild({op: 'dbGetMetadata'})
       : Sentry.startTransaction({name: 'dbGetMetadata'});
@@ -100,28 +102,38 @@ class Database {
 
     const callOpts = {...opts, span: tx};
 
+    console.log(`[METADATA_DEBUG] Database.getMetadata - getting device ensured...`);
     const device = await this.#deviceManager.getDeviceEnsured(deviceId);
     if (device === null) {
+      console.log(`[METADATA_DEBUG] Database.getMetadata - device is null, returning null`);
       return null;
     }
+    console.log(`[METADATA_DEBUG] Database.getMetadata - got device: type=${device.type}, ip=${device.ip?.address}`);
 
     const strategy = this.#getTrackLookupStrategy(device, trackType);
+    console.log(`[METADATA_DEBUG] Database.getMetadata - strategy=${LookupStrategy[strategy]}`);
     let track: Track | null = null;
 
     if (strategy === LookupStrategy.Remote) {
+      console.log(`[METADATA_DEBUG] Database.getMetadata - calling GetMetadata.viaRemote...`);
       track = await GetMetadata.viaRemote(this.#remoteDatabase, callOpts);
+      console.log(`[METADATA_DEBUG] Database.getMetadata - viaRemote returned, track=${track ? 'found' : 'null'}`);
     }
 
     if (strategy === LookupStrategy.Local) {
+      console.log(`[METADATA_DEBUG] Database.getMetadata - calling GetMetadata.viaLocal...`);
       track = await GetMetadata.viaLocal(this.#localDatabase, device, callOpts);
+      console.log(`[METADATA_DEBUG] Database.getMetadata - viaLocal returned, track=${track ? 'found' : 'null'}`);
     }
 
     if (strategy === LookupStrategy.NoneAvailable) {
+      console.log(`[METADATA_DEBUG] Database.getMetadata - no strategy available`);
       tx.setStatus(SpanStatus.Unavailable);
     }
 
     tx.finish();
 
+    console.log(`[METADATA_DEBUG] Database.getMetadata END - returning track=${track ? track.title : 'null'}`);
     return track;
   }
 
