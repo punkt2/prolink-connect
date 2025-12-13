@@ -111,8 +111,10 @@ interface Options {
  * track metadata, including analyzed metadata (such as beatgrids and waveforms).
  */
 export async function hydrateDatabase({pdbData, span, ...options}: Options) {
+  console.log(`[METADATA_DEBUG] hydrateDatabase START - pdbData size=${pdbData.length}`);
   const hydrator = new RekordboxHydrator(options);
   await hydrator.hydrateFromPdb(pdbData, span);
+  console.log(`[METADATA_DEBUG] hydrateDatabase END`);
 }
 
 /**
@@ -124,10 +126,16 @@ export async function loadAnlz<T extends keyof AnlzResponse>(
   anlzResolver: AnlzResolver
 ): Promise<AnlzResponse[T]> {
   const path = `${track.analyzePath}.${type}`;
-  const anlzData = await anlzResolver(path);
+  console.log(`[METADATA_DEBUG] loadAnlz START - path=${path}, type=${type}`);
 
+  console.log(`[METADATA_DEBUG] loadAnlz - resolving ANLZ file...`);
+  const anlzData = await anlzResolver(path);
+  console.log(`[METADATA_DEBUG] loadAnlz - ANLZ file resolved, size=${anlzData.length}`);
+
+  console.log(`[METADATA_DEBUG] loadAnlz - parsing ANLZ data...`);
   const stream = new KaitaiStream(anlzData);
   const anlz = new RekordboxAnlz(stream);
+  console.log(`[METADATA_DEBUG] loadAnlz - ANLZ parsed, sections=${anlz.sections.length}`);
 
   const result = {} as AnlzResponse[T];
   const resultDat = result as AnlzResponseDAT;
@@ -157,6 +165,7 @@ export async function loadAnlz<T extends keyof AnlzResponse>(
     // [SectionTags.WAVE_COLOR_PREVIEW]: null, <- In the EXT file
   }
 
+  console.log(`[METADATA_DEBUG] loadAnlz END`);
   return result;
 }
 
@@ -178,22 +187,28 @@ class RekordboxHydrator {
    * connection with entities derived from the rekordbox entries.
    */
   async hydrateFromPdb(pdbData: Buffer, span?: Span) {
+    console.log(`[METADATA_DEBUG] hydrateFromPdb START - size=${pdbData.length}`);
     const tx = span
       ? span.startChild({op: 'hydrateFromPdb'})
       : Sentry.startTransaction({name: 'hydrateFromPdb'});
 
+    console.log(`[METADATA_DEBUG] hydrateFromPdb - parsing PDB data...`);
     const parseTx = tx.startChild({op: 'parsePdbData', data: {size: pdbData.length}});
     const stream = new KaitaiStream(pdbData);
     const db = new RekordboxPdb(stream);
     parseTx.finish();
+    console.log(`[METADATA_DEBUG] hydrateFromPdb - PDB parsed, tables=${db.tables.length}`);
 
+    console.log(`[METADATA_DEBUG] hydrateFromPdb - hydrating tables...`);
     const hydrateTx = tx.startChild({op: 'hydration'});
     await Promise.all(
       db.tables.map((table: any) => this.hydrateFromTable(table, hydrateTx))
     );
     hydrateTx.finish();
+    console.log(`[METADATA_DEBUG] hydrateFromPdb - tables hydrated`);
 
     tx.finish();
+    console.log(`[METADATA_DEBUG] hydrateFromPdb END`);
   }
 
   /**
