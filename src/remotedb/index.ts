@@ -81,8 +81,11 @@ interface QueryOpts<T extends Query> {
  * listening on for requests.
  */
 async function getRemoteDBServerPort(deviceIp: ip.Address4) {
+  console.log(`[METADATA_DEBUG] getRemoteDBServerPort START - ip=${deviceIp.address}`);
   const conn = new PromiseSocket(new Socket());
+  console.log(`[METADATA_DEBUG] getRemoteDBServerPort - connecting to port ${REMOTEDB_SERVER_QUERY_PORT}...`);
   await conn.connect(REMOTEDB_SERVER_QUERY_PORT, deviceIp.address);
+  console.log(`[METADATA_DEBUG] getRemoteDBServerPort - connected`);
 
   // Magic request packet asking the device to report it's remoteDB port
   const data = Buffer.from([
@@ -91,8 +94,11 @@ async function getRemoteDBServerPort(deviceIp: ip.Address4) {
     0x00,
   ]);
 
+  console.log(`[METADATA_DEBUG] getRemoteDBServerPort - writing query...`);
   await conn.write(data);
+  console.log(`[METADATA_DEBUG] getRemoteDBServerPort - reading response...`);
   const resp = await conn.read();
+  console.log(`[METADATA_DEBUG] getRemoteDBServerPort - response received`);
 
   if (typeof resp !== 'object') {
     throw new Error('Invalid response from remotedb');
@@ -102,7 +108,9 @@ async function getRemoteDBServerPort(deviceIp: ip.Address4) {
     throw new Error(`Expected 2 bytes, got ${resp.length}`);
   }
 
-  return resp.readUInt16BE();
+  const port = resp.readUInt16BE();
+  console.log(`[METADATA_DEBUG] getRemoteDBServerPort END - port=${port}`);
+  return port;
 }
 
 /**
@@ -127,12 +135,20 @@ export class Connection {
     });
 
     message.transactionId = ++this.#txId;
+    console.log(`[METADATA_DEBUG] Connection.writeMessage - type=${getMessageName(message.type)}, txId=${message.transactionId}`);
     await this.#socket.write(message.buffer);
+    console.log(`[METADATA_DEBUG] Connection.writeMessage - write complete`);
     tx.finish();
   }
 
   readMessage<T extends Response>(expect: T, span: Span) {
-    return this.#lock.runExclusive(() => Message.fromStream(this.#socket, expect, span));
+    console.log(`[METADATA_DEBUG] Connection.readMessage - expecting=${getMessageName(expect)}, acquiring lock...`);
+    return this.#lock.runExclusive(async () => {
+      console.log(`[METADATA_DEBUG] Connection.readMessage - lock acquired, calling fromStream...`);
+      const result = await Message.fromStream(this.#socket, expect, span);
+      console.log(`[METADATA_DEBUG] Connection.readMessage - fromStream complete, got type=${getMessageName(result.type)}`);
+      return result;
+    });
   }
 
   close() {
@@ -159,6 +175,7 @@ export class QueryInterface {
     const conn = this.#conn;
 
     const queryName = getQueryName(opts.query);
+    console.log(`[METADATA_DEBUG] QueryInterface.query START - queryName=${queryName}`);
 
     const tx = span
       ? span.startChild({op: 'remoteQuery', description: queryName})
@@ -177,9 +194,13 @@ export class QueryInterface {
 
     const handler = queryHandlers[query];
 
+    console.log(`[METADATA_DEBUG] QueryInterface.query - acquiring lock...`);
     const releaseLock = await this.#lock.acquire();
+    console.log(`[METADATA_DEBUG] QueryInterface.query - lock acquired, executing handler...`);
     const response = await handler({conn, lookupDescriptor, span: tx, args: anyArgs});
+    console.log(`[METADATA_DEBUG] QueryInterface.query - handler complete, releasing lock...`);
     releaseLock();
+    console.log(`[METADATA_DEBUG] QueryInterface.query END - lock released`);
     tx.finish();
 
     return response as Await<HandlerReturn<T>>;
@@ -211,18 +232,25 @@ export default class RemoteDatabase {
    * Open a connection to the specified device for querying
    */
   connectToDevice = async (device: Device) => {
+    console.log(`[METADATA_DEBUG] connectToDevice START - deviceId=${device.id}, ip=${device.ip?.address}`);
     const tx = Sentry.startTransaction({name: 'connectRemotedb', data: {device}});
 
     const {ip} = device;
 
+    console.log(`[METADATA_DEBUG] connectToDevice - getting remote DB server port...`);
     const dbPort = await getRemoteDBServerPort(ip);
+    console.log(`[METADATA_DEBUG] connectToDevice - dbPort=${dbPort}`);
 
     const socket = new PromiseSocket(new Socket());
+    console.log(`[METADATA_DEBUG] connectToDevice - connecting to socket...`);
     await socket.connect(dbPort, ip.address);
+    console.log(`[METADATA_DEBUG] connectToDevice - socket connected`);
 
     // Send required preamble to open communications with the device
     const preamble = new UInt32(0x01);
+    console.log(`[METADATA_DEBUG] connectToDevice - writing preamble...`);
     await socket.write(preamble.buffer);
+    console.log(`[METADATA_DEBUG] connectToDevice - reading preamble response...`);
 
     // Read the response. It should be a UInt32 field with the value 0x01.
     // There is some kind of problem if not.
@@ -231,6 +259,7 @@ export default class RemoteDatabase {
     if (data.value !== 0x01) {
       throw new Error(`Expected 0x01 during preamble handshake. Got ${data.value}`);
     }
+    console.log(`[METADATA_DEBUG] connectToDevice - preamble handshake OK`);
 
     // Send introduction message to set context for querying
     const intro = new Message({
@@ -239,7 +268,9 @@ export default class RemoteDatabase {
       args: [new UInt32(this.#hostDevice.id)],
     });
 
+    console.log(`[METADATA_DEBUG] connectToDevice - writing intro message...`);
     await socket.write(intro.buffer);
+    console.log(`[METADATA_DEBUG] connectToDevice - reading intro response...`);
     const resp = await Message.fromStream(socket, MessageType.Success, tx);
 
     if (resp.type !== MessageType.Success) {
@@ -247,6 +278,7 @@ export default class RemoteDatabase {
     }
 
     this.#connections.set(device.id, new Connection(device, socket));
+    console.log(`[METADATA_DEBUG] connectToDevice END - connected to device ${device.id}`);
     tx.finish();
   };
 
@@ -284,8 +316,10 @@ export default class RemoteDatabase {
    * @returns null if the device does not export a remote database service
    */
   async get(deviceId: DeviceID) {
+    console.log(`[METADATA_DEBUG] RemoteDatabase.get START - deviceId=${deviceId}`);
     const device = this.#deviceManager.devices.get(deviceId);
     if (device === undefined) {
+      console.log(`[METADATA_DEBUG] RemoteDatabase.get - device not found, returning null`);
       return null;
     }
 
@@ -293,12 +327,17 @@ export default class RemoteDatabase {
       this.#deviceLocks.get(device.id) ??
       this.#deviceLocks.set(device.id, new Mutex()).get(device.id)!;
 
+    console.log(`[METADATA_DEBUG] RemoteDatabase.get - acquiring device lock...`);
     const releaseLock = await lock.acquire();
+    console.log(`[METADATA_DEBUG] RemoteDatabase.get - device lock acquired`);
 
     try {
       let conn = this.#connections.get(deviceId);
       if (conn === undefined) {
+        console.log(`[METADATA_DEBUG] RemoteDatabase.get - no existing connection, connecting...`);
         await this.connectToDevice(device);
+      } else {
+        console.log(`[METADATA_DEBUG] RemoteDatabase.get - using existing connection`);
       }
 
       conn = this.#connections.get(deviceId)!;
@@ -306,8 +345,10 @@ export default class RemoteDatabase {
       // NOTE: We pass the same lock we use for this device to the query
       // interface to ensure all query interfaces use the same lock.
 
+      console.log(`[METADATA_DEBUG] RemoteDatabase.get END - returning QueryInterface`);
       return new QueryInterface(conn, lock, this.#hostDevice);
     } finally {
+      console.log(`[METADATA_DEBUG] RemoteDatabase.get - releasing device lock`);
       releaseLock();
     }
   }

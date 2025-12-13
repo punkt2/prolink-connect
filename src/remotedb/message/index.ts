@@ -71,31 +71,45 @@ export class Message<T extends MessageType = MessageType> {
     expect: T,
     span: Span
   ) {
+    const expectName = getMessageName(expect);
+    console.log(`[METADATA_DEBUG] Message.fromStream START - expecting ${expectName}`);
+
     const tx = span.startChild({
       op: 'readFromStream',
-      description: getMessageName(expect),
+      description: expectName,
     });
 
     // 01. Read magic bytes
+    console.log(`[METADATA_DEBUG] Message.fromStream - step 1: reading magic header...`);
     const magicHeader = await readField(stream, FieldType.UInt32);
 
     if (magicHeader.value !== REMOTEDB_MAGIC) {
       throw new Error('Did not receive expected magic value. Corrupt message');
     }
+    console.log(`[METADATA_DEBUG] Message.fromStream - magic header OK`);
 
     // 02. Read transaction ID
+    console.log(`[METADATA_DEBUG] Message.fromStream - step 2: reading txId...`);
     const txId = await readField(stream, FieldType.UInt32);
+    console.log(`[METADATA_DEBUG] Message.fromStream - txId=${txId.value}`);
 
     // 03. Read message type
+    console.log(`[METADATA_DEBUG] Message.fromStream - step 3: reading message type...`);
     const messageType = await readField(stream, FieldType.UInt16);
+    console.log(`[METADATA_DEBUG] Message.fromStream - messageType=0x${messageType.value.toString(16)}`);
 
     // 04. Read argument count
+    console.log(`[METADATA_DEBUG] Message.fromStream - step 4: reading arg count...`);
     const argCount = await readField(stream, FieldType.UInt8);
+    console.log(`[METADATA_DEBUG] Message.fromStream - argCount=${argCount.value}`);
 
     // 05. Read argument list
+    console.log(`[METADATA_DEBUG] Message.fromStream - step 5: reading arg list...`);
     const argList = await readField(stream, FieldType.Binary);
+    console.log(`[METADATA_DEBUG] Message.fromStream - argList received`);
 
     // 06. Read all argument fields in
+    console.log(`[METADATA_DEBUG] Message.fromStream - step 6: reading ${argCount.value} argument fields...`);
     const args: Field[] = new Array(argCount.value);
 
     for (let i = 0; i < argCount.value; ++i) {
@@ -103,11 +117,14 @@ export class Message<T extends MessageType = MessageType> {
       //      binary data, but if the binary data is empty the field will not
       //      be sent.
       if (argList.value[i] === ArgumentType.Binary && args[i - 1]?.value === 0) {
+        console.log(`[METADATA_DEBUG] Message.fromStream - arg[${i}]: empty binary (skipped)`);
         args[i] = new Binary(Buffer.alloc(0));
         continue;
       }
 
+      console.log(`[METADATA_DEBUG] Message.fromStream - arg[${i}]: reading...`);
       args[i] = await readField(stream, argsFieldMap[argList.value[i] as ArgumentType]);
+      console.log(`[METADATA_DEBUG] Message.fromStream - arg[${i}]: complete`);
     }
 
     if (messageType.value !== expect) {
@@ -122,6 +139,7 @@ export class Message<T extends MessageType = MessageType> {
 
     tx.finish();
 
+    console.log(`[METADATA_DEBUG] Message.fromStream END - received ${expectName}`);
     return new Message({
       transactionId: txId.value,
       type: messageType.value as T,

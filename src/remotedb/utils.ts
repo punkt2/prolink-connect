@@ -48,6 +48,7 @@ export async function* renderItems<T extends ItemType = ItemType>(
   total: number,
   span: Span
 ) {
+  console.log(`[METADATA_DEBUG] renderItems START - total=${total}, LIMIT=${LIMIT}`);
   let itemsRead = 0;
 
   while (itemsRead < total) {
@@ -59,22 +60,30 @@ export async function* renderItems<T extends ItemType = ItemType>(
       const count = Math.min(LIMIT, total - itemsRead);
       const message = makeRenderMessage(descriptor, itemsRead, count, total);
 
+      console.log(`[METADATA_DEBUG] renderItems - requesting page: offset=${itemsRead}, count=${count}, total=${total}`);
       await conn.writeMessage(message, span);
+      console.log(`[METADATA_DEBUG] renderItems - reading MenuHeader...`);
       await conn.readMessage(MessageType.MenuHeader, span);
+      console.log(`[METADATA_DEBUG] renderItems - MenuHeader received`);
     }
 
     // Read each item. Ignoring headers and footers, we will determine when to
     // stop by counting the items read until we reach the total items.
+    console.log(`[METADATA_DEBUG] renderItems - reading MenuItem ${itemsRead + 1}/${total}...`);
     const resp = await conn.readMessage(MessageType.MenuItem, span);
+    console.log(`[METADATA_DEBUG] renderItems - MenuItem received`);
 
     yield resp.data as Items[T];
     itemsRead++;
 
     // When we've reached the end of a page we must read the footer
     if (itemsRead % LIMIT === 0 || itemsRead === total) {
+      console.log(`[METADATA_DEBUG] renderItems - reading MenuFooter (page complete or end of items)...`);
       await conn.readMessage(MessageType.MenuFooter, span);
+      console.log(`[METADATA_DEBUG] renderItems - MenuFooter received`);
     }
   }
+  console.log(`[METADATA_DEBUG] renderItems END - total items read: ${itemsRead}`);
 }
 
 const colors = [

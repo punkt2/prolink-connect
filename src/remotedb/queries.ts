@@ -39,13 +39,18 @@ async function getMetadata(opts: TrackQueryOpts) {
   const {conn, lookupDescriptor, span, args} = opts;
   const {trackId} = args;
 
+  console.log(`[METADATA_DEBUG] queries.getMetadata START - trackId=${trackId}`);
+
   const request = new Message({
     type: Request.GetMetadata,
     args: [fieldFromDescriptor(lookupDescriptor), new UInt32(trackId)],
   });
 
+  console.log(`[METADATA_DEBUG] queries.getMetadata - writing request message...`);
   await conn.writeMessage(request, span);
+  console.log(`[METADATA_DEBUG] queries.getMetadata - reading response...`);
   const resp = await conn.readMessage(Response.Success, span);
+  console.log(`[METADATA_DEBUG] queries.getMetadata - response received, itemsAvailable=${resp.data.itemsAvailable}`);
 
   // We'll get back these specific items when rendering out the items
   //
@@ -67,6 +72,7 @@ async function getMetadata(opts: TrackQueryOpts) {
     | ItemType.Year
     | ItemType.OriginalArtist;
 
+  console.log(`[METADATA_DEBUG] queries.getMetadata - starting renderItems iterator...`);
   const items = renderItems<MetadataItems>(
     conn,
     lookupDescriptor,
@@ -77,9 +83,13 @@ async function getMetadata(opts: TrackQueryOpts) {
   // NOTE: We do a bit of any-ing here to help typescript understand we're
   // discriminating the type by our object key
   const trackItems: Pick<Items, MetadataItems> = {} as any;
+  let itemCount = 0;
   for await (const item of items) {
+    itemCount++;
+    console.log(`[METADATA_DEBUG] queries.getMetadata - received item ${itemCount}/${resp.data.itemsAvailable}, type=${item.type}`);
     trackItems[item.type] = item as any;
   }
+  console.log(`[METADATA_DEBUG] queries.getMetadata - renderItems complete, received ${itemCount} items`);
 
   // Translate our trackItems into a (partial) Track entity.
   const track: entities.Track = {
@@ -111,6 +121,7 @@ async function getMetadata(opts: TrackQueryOpts) {
     waveformHd: null,
   };
 
+  console.log(`[METADATA_DEBUG] queries.getMetadata END - returning track: ${track.title}`);
   return track;
 }
 
@@ -121,13 +132,18 @@ async function getGenericMetadata(opts: TrackQueryOpts) {
   const {conn, lookupDescriptor, span, args} = opts;
   const {trackId} = args;
 
+  console.log(`[METADATA_DEBUG] queries.getGenericMetadata START - trackId=${trackId}`);
+
   const request = new Message({
     type: Request.GetGenericMetadata,
     args: [fieldFromDescriptor(lookupDescriptor), new UInt32(trackId)],
   });
 
+  console.log(`[METADATA_DEBUG] queries.getGenericMetadata - writing request message...`);
   await conn.writeMessage(request, span);
+  console.log(`[METADATA_DEBUG] queries.getGenericMetadata - reading response...`);
   const resp = await conn.readMessage(Response.Success, span);
+  console.log(`[METADATA_DEBUG] queries.getGenericMetadata - response received, itemsAvailable=${resp.data.itemsAvailable}`);
 
   // NOTE: We actually also get back a color, but we'll find that one later,
   // since each color is it's own item type.
@@ -142,6 +158,7 @@ async function getGenericMetadata(opts: TrackQueryOpts) {
     | ItemType.BitRate
     | ItemType.Comment;
 
+  console.log(`[METADATA_DEBUG] queries.getGenericMetadata - starting renderItems iterator...`);
   const items = renderItems<GenericMetadataItems>(
     conn,
     lookupDescriptor,
@@ -152,9 +169,13 @@ async function getGenericMetadata(opts: TrackQueryOpts) {
   // NOTE: We do a bit of any-ing here to help typescript understand we're
   // discriminating the type by our object key
   const fileItems: Pick<Items, GenericMetadataItems> = {} as any;
+  let itemCount = 0;
   for await (const item of items) {
+    itemCount++;
+    console.log(`[METADATA_DEBUG] queries.getGenericMetadata - received item ${itemCount}/${resp.data.itemsAvailable}, type=${item.type}`);
     fileItems[item.type] = item as any;
   }
+  console.log(`[METADATA_DEBUG] queries.getGenericMetadata - renderItems complete, received ${itemCount} items`);
 
   // Translate our fileItems into a (partial) Track entity.
   // Use optional chaining since CDJ 3000 doesn't return all item types for unanalyzed tracks
@@ -187,6 +208,7 @@ async function getGenericMetadata(opts: TrackQueryOpts) {
     waveformHd: null,
   };
 
+  console.log(`[METADATA_DEBUG] queries.getGenericMetadata END - returning track: ${track.title}`);
   return track;
 }
 
@@ -215,13 +237,18 @@ async function getBeatgrid(opts: TrackQueryOpts) {
   const {conn, lookupDescriptor, span, args} = opts;
   const {trackId} = args;
 
+  console.log(`[METADATA_DEBUG] queries.getBeatgrid START - trackId=${trackId}`);
+
   const request = new Message({
     type: Request.GetBeatGrid,
     args: [fieldFromDescriptor(lookupDescriptor), new UInt32(trackId)],
   });
 
+  console.log(`[METADATA_DEBUG] queries.getBeatgrid - writing request message...`);
   await conn.writeMessage(request, span);
+  console.log(`[METADATA_DEBUG] queries.getBeatgrid - reading response...`);
   const grid = await conn.readMessage(Response.BeatGrid, span);
+  console.log(`[METADATA_DEBUG] queries.getBeatgrid END - response received`);
 
   return grid.data;
 }
@@ -334,13 +361,18 @@ async function getTrackInfo(opts: TrackQueryOpts) {
   const {conn, lookupDescriptor, span, args} = opts;
   const {trackId} = args;
 
+  console.log(`[METADATA_DEBUG] queries.getTrackInfo START - trackId=${trackId}`);
+
   const request = new Message({
     type: Request.GetTrackInfo,
     args: [fieldFromDescriptor(lookupDescriptor), new UInt32(trackId)],
   });
 
+  console.log(`[METADATA_DEBUG] queries.getTrackInfo - writing request message...`);
   await conn.writeMessage(request, span);
+  console.log(`[METADATA_DEBUG] queries.getTrackInfo - reading response...`);
   const resp = await conn.readMessage(Response.Success, span);
+  console.log(`[METADATA_DEBUG] queries.getTrackInfo - response received, itemsAvailable=${resp.data.itemsAvailable}`);
 
   type TrackInfoItems =
     | ItemType.TrackTitle
@@ -350,6 +382,7 @@ async function getTrackInfo(opts: TrackQueryOpts) {
     | ItemType.Comment
     | ItemType.Unknown01;
 
+  console.log(`[METADATA_DEBUG] queries.getTrackInfo - starting renderItems iterator...`);
   const items = renderItems<TrackInfoItems>(
     conn,
     lookupDescriptor,
@@ -358,9 +391,13 @@ async function getTrackInfo(opts: TrackQueryOpts) {
   );
 
   const infoItems: Pick<Items, TrackInfoItems> = {} as any;
+  let itemCount = 0;
   for await (const item of items) {
+    itemCount++;
+    console.log(`[METADATA_DEBUG] queries.getTrackInfo - received item ${itemCount}/${resp.data.itemsAvailable}, type=${item.type}`);
     infoItems[item.type] = item as any;
   }
+  console.log(`[METADATA_DEBUG] queries.getTrackInfo END - renderItems complete, received ${itemCount} items`);
 
   return infoItems[ItemType.Path].path;
 }

@@ -206,7 +206,9 @@ const fieldMap = {
  * I'm not sure when this would return a string. We'll play it safe for now.
  */
 async function read(stream: PromiseReadable<any>, bytes: number) {
+  console.log(`[METADATA_DEBUG] fields.read - waiting for ${bytes} bytes...`);
   const data = await stream.read(bytes);
+  console.log(`[METADATA_DEBUG] fields.read - received ${data instanceof Buffer ? data.length : 'non-buffer'} bytes`);
 
   if (data instanceof Buffer) {
     return data;
@@ -222,6 +224,8 @@ export async function readField<
   T extends FieldType,
   F extends InstanceType<(typeof fieldMap)[T]>,
 >(stream: PromiseReadable<any>, expect: T): Promise<F> {
+  const expectedName = fieldMap[expect].name;
+  console.log(`[METADATA_DEBUG] readField - expecting ${expectedName}, reading type byte...`);
   const typeData = await read(stream, 1);
   const Field = fieldMap[typeData[0] as FieldType];
 
@@ -233,14 +237,19 @@ export async function readField<
 
   if (typeof Field.bytesToRead === 'number') {
     nextByteCount = Field.bytesToRead;
+    console.log(`[METADATA_DEBUG] readField - ${expectedName} has fixed size ${nextByteCount}`);
   } else {
     // Read the field length as a UInt32 when we do not know the field length
     // from the type
+    console.log(`[METADATA_DEBUG] readField - ${expectedName} has variable size, reading length...`);
     const lengthData = await read(stream, 4);
     nextByteCount = Field.bytesToRead(lengthData.readUInt32BE());
+    console.log(`[METADATA_DEBUG] readField - ${expectedName} variable size is ${nextByteCount}`);
   }
 
+  console.log(`[METADATA_DEBUG] readField - reading ${nextByteCount} bytes of ${expectedName} data...`);
   const data = nextByteCount === 0 ? Buffer.alloc(0) : await read(stream, nextByteCount);
+  console.log(`[METADATA_DEBUG] readField - ${expectedName} complete`);
 
   return new Field(data) as F;
 }
