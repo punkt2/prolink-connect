@@ -214,7 +214,14 @@ async function read(stream: PromiseReadable<any>, bytes: number) {
     return data;
   }
 
-  throw new Error('Expected buffer from stream read');
+  if (data === undefined) {
+    throw new Error(
+      `Remote database connection closed unexpectedly while waiting for ${bytes} bytes ` +
+      `(device may have terminated the connection)`
+    );
+  }
+
+  throw new Error(`Expected Buffer from stream read, got ${typeof data}: ${JSON.stringify(data)}`);
 }
 
 /**
