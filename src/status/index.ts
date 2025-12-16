@@ -75,10 +75,26 @@ class StatusEmitter {
    */
   async queryMediaSlot(options: MediaSlotOptions) {
     const request = makeMediaSlotRequest(options);
+    const TIMEOUT_MS = 2000;
 
     const media = await this.#mediaSlotQueryLock.runExclusive(async () => {
       await udpSend(this.#statusSocket, request, STATUS_PORT, options.device.ip.address);
-      return new Promise<MediaSlotInfo>(resolve => this.once('mediaSlot', resolve));
+
+      return new Promise<MediaSlotInfo>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          this.off('mediaSlot', handler);
+          reject(new Error(
+            `Media slot query timed out after ${TIMEOUT_MS}ms for device ${options.device.id} slot ${options.slot}`
+          ));
+        }, TIMEOUT_MS);
+
+        const handler = (info: MediaSlotInfo) => {
+          clearTimeout(timeout);
+          resolve(info);
+        };
+
+        this.once('mediaSlot', handler);
+      });
     });
 
     return media;
