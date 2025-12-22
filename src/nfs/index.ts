@@ -38,7 +38,9 @@ const slotMountMapping = {
 /**
  * The module-level retry configuration for newly created RpcConnections.
  */
-let retryConfig: RetryConfig = {};
+let retryConfig: RetryConfig = {
+  retries: 3,
+};
 
 /**
  * This module maintains a singleton cached list of player addresses -> active
