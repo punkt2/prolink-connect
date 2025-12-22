@@ -123,21 +123,40 @@ export class RpcConnection {
     };
 
     // Function to execute the transaction, with retries if the transaction times out.
+    let attemptCount = 0;
     const executeWithRetry = () =>
-      promiseRetry(retryConfig, async retry => {
+      promiseRetry(retryConfig, async (retry, attemptNumber) => {
+        attemptCount = attemptNumber;
         try {
           return await executeWithTimeout();
         } catch (err) {
           if (err instanceof TimeoutError) {
             console.warn(
-              `[prolink-connect] RPC call to ${this.address}:${port} timed out, retrying...`
+              `[RPC_DEBUG] Timeout on attempt ${attemptNumber} - ` +
+                `address=${this.address}, port=${port}, ` +
+                `program=${call.program}, procedure=${call.procedure}, ` +
+                `timeout=${transactionTimeout ?? 1000}ms`
             );
             retry(err);
           } else {
+            console.error(
+              `[RPC_DEBUG] Non-timeout error - ` +
+                `address=${this.address}, port=${port}, ` +
+                `program=${call.program}, procedure=${call.procedure}, ` +
+                `error=${err instanceof Error ? err.message : String(err)}`
+            );
             throw err;
           }
         }
         return undefined;
+      }).catch(err => {
+        console.error(
+          `[RPC_DEBUG] All retries exhausted after ${attemptCount} attempts - ` +
+            `address=${this.address}, port=${port}, ` +
+            `program=${call.program}, procedure=${call.procedure}, ` +
+            `error=${err instanceof Error ? err.message : String(err)}`
+        );
+        throw err;
       });
 
     // Execute the transaction exclusively to avoid async call races
@@ -148,11 +167,22 @@ export class RpcConnection {
 
     const message = packet.message().response();
     if (message.arm() !== 'accepted') {
+      console.error(
+        `[RPC_DEBUG] Request denied - ` +
+          `address=${this.address}, port=${port}, ` +
+          `program=${call.program}, procedure=${call.procedure}`
+      );
       throw new Error('RPC request was denied');
     }
 
     const body = message.accepted().response();
     if (body.arm() !== 'success') {
+      console.error(
+        `[RPC_DEBUG] Request failed - ` +
+          `address=${this.address}, port=${port}, ` +
+          `program=${call.program}, procedure=${call.procedure}, ` +
+          `response=${body.arm()}`
+      );
       throw new Error('RPC did not successfully return data');
     }
 
