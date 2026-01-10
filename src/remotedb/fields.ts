@@ -1,5 +1,20 @@
 import {PromiseReadable} from 'promise-readable';
 
+const READ_TIMEOUT_MS = 2000; // 2 seconds per read operation
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timeoutId: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(message));
+    }, ms);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutId);
+  });
+}
+
 const NULL_CHAR = '\0';
 
 /**
@@ -207,7 +222,11 @@ const fieldMap = {
  */
 async function read(stream: PromiseReadable<any>, bytes: number) {
   console.log(`[METADATA_DEBUG] fields.read - waiting for ${bytes} bytes...`);
-  const data = await stream.read(bytes);
+  const data = await withTimeout(
+    stream.read(bytes),
+    READ_TIMEOUT_MS,
+    `Timeout waiting for ${bytes} bytes from remote database (no data received within ${READ_TIMEOUT_MS}ms)`
+  );
   console.log(`[METADATA_DEBUG] fields.read - received ${data instanceof Buffer ? data.length : 'non-buffer'} bytes`);
 
   if (data instanceof Buffer) {

@@ -197,13 +197,15 @@ export class QueryInterface {
     console.log(`[METADATA_DEBUG] QueryInterface.query - acquiring lock...`);
     const releaseLock = await this.#lock.acquire();
     console.log(`[METADATA_DEBUG] QueryInterface.query - lock acquired, executing handler...`);
-    const response = await handler({conn, lookupDescriptor, span: tx, args: anyArgs});
-    console.log(`[METADATA_DEBUG] QueryInterface.query - handler complete, releasing lock...`);
-    releaseLock();
-    console.log(`[METADATA_DEBUG] QueryInterface.query END - lock released`);
-    tx.finish();
-
-    return response as Await<HandlerReturn<T>>;
+    try {
+      const response = await handler({conn, lookupDescriptor, span: tx, args: anyArgs});
+      console.log(`[METADATA_DEBUG] QueryInterface.query END - handler complete`);
+      return response as Await<HandlerReturn<T>>;
+    } finally {
+      console.log(`[METADATA_DEBUG] QueryInterface.query - releasing lock...`);
+      releaseLock();
+      tx.finish();
+    }
   }
 }
 
@@ -306,6 +308,22 @@ export default class RemoteDatabase {
     this.#connections.delete(device.id);
     tx.finish();
   };
+
+  /**
+   * Remove a connection for a device without sending disconnect message.
+   * Used when a connection is in a bad state (e.g., timeout).
+   */
+  removeConnection(deviceId: DeviceID) {
+    const conn = this.#connections.get(deviceId);
+    if (conn) {
+      try {
+        conn.close();
+      } catch {
+        // Ignore errors when closing dead connection
+      }
+      this.#connections.delete(deviceId);
+    }
+  }
 
   /**
    * Gets the remote database query interface for the given device.

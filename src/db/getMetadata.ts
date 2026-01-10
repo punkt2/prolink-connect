@@ -53,35 +53,41 @@ export async function viaRemote(remote: RemoteDatabase, opts: Required<Options>)
   const metadataQuery =
     trackType === TrackType.Unanalyzed ? Query.GetGenericMetadata : Query.GetMetadata;
 
-  console.log(`[METADATA_DEBUG] viaRemote - querying metadata (query=${metadataQuery})...`);
-  const track = await conn.query({
-    queryDescriptor,
-    query: metadataQuery,
-    args: {trackId},
-    span,
-  });
-  console.log(`[METADATA_DEBUG] viaRemote - metadata query complete, got track: ${track?.title}`);
+  try {
+    console.log(`[METADATA_DEBUG] viaRemote - querying metadata (query=${metadataQuery})...`);
+    const track = await conn.query({
+      queryDescriptor,
+      query: metadataQuery,
+      args: {trackId},
+      span,
+    });
+    console.log(`[METADATA_DEBUG] viaRemote - metadata query complete, got track: ${track?.title}`);
 
-  console.log(`[METADATA_DEBUG] viaRemote - querying track info (file path)...`);
-  track.filePath = await conn.query({
-    queryDescriptor,
-    query: Query.GetTrackInfo,
-    args: {trackId},
-    span,
-  });
-  console.log(`[METADATA_DEBUG] viaRemote - track info query complete, filePath=${track.filePath}`);
+    console.log(`[METADATA_DEBUG] viaRemote - querying track info (file path)...`);
+    track.filePath = await conn.query({
+      queryDescriptor,
+      query: Query.GetTrackInfo,
+      args: {trackId},
+      span,
+    });
+    console.log(`[METADATA_DEBUG] viaRemote - track info query complete, filePath=${track.filePath}`);
 
-  console.log(`[METADATA_DEBUG] viaRemote - querying beat grid...`);
-  track.beatGrid = await conn.query({
-    queryDescriptor,
-    query: Query.GetBeatGrid,
-    args: {trackId},
-    span,
-  });
-  console.log(`[METADATA_DEBUG] viaRemote - beat grid query complete`);
+    console.log(`[METADATA_DEBUG] viaRemote - querying beat grid...`);
+    track.beatGrid = await conn.query({
+      queryDescriptor,
+      query: Query.GetBeatGrid,
+      args: {trackId},
+      span,
+    });
+    console.log(`[METADATA_DEBUG] viaRemote - beat grid query complete`);
 
-  console.log(`[METADATA_DEBUG] viaRemote END - returning track`);
-  return track;
+    console.log(`[METADATA_DEBUG] viaRemote END - returning track`);
+    return track;
+  } catch (error) {
+    console.log(`[METADATA_DEBUG] viaRemote - error occurred, removing connection: ${error}`);
+    remote.removeConnection(deviceId);
+    throw error;
+  }
 }
 
 export async function viaLocal(
