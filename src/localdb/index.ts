@@ -4,6 +4,7 @@ import StrictEventEmitter from 'strict-event-emitter-types';
 
 import {createHash} from 'crypto';
 import {EventEmitter} from 'events';
+import {writeFileSync} from 'fs';
 
 import DeviceManager from 'src/devices';
 import {fetchFile, FetchProgress} from 'src/nfs';
@@ -211,6 +212,12 @@ class LocalDatabase {
           this.#emitter.emit('fetchProgress', {device, slot, progress}),
       });
       console.log(`[METADATA_DEBUG] #hydrateDatabase - PDB file fetched, size=${pdbData.length}`);
+
+      // Save PDB file to disk for debugging
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const debugPath = `/tmp/export-${timestamp}-device${device.id}-slot${slot}.pdb`;
+      writeFileSync(debugPath, pdbData);
+      console.log(`[METADATA_DEBUG] #hydrateDatabase - PDB file saved to ${debugPath}`);
     };
 
     // Rekordbox exports to both the `.PIONEER` and `PIONEER` folder, depending
