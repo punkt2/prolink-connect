@@ -86,10 +86,14 @@ export class MetadataORM {
   /**
    * Locate a track by ID in the database
    */
-  findTrack(id: number): Track {
-    const row: Record<string, any> = this.#conn
+  findTrack(id: number): Track | null {
+    const row: Record<string, any> | undefined = this.#conn
       .prepare<any, any>(`select * from ${Table.Track} where id = ?`)
       .get(id);
+
+    if (row === undefined) {
+      return null;
+    }
 
     // Map row columns to camel case compatibility
     const trackRow = mapKeys(row, (_, k) => camelCase(k)) as Track<EntityFK.WithFKs>;
