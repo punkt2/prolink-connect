@@ -6,6 +6,7 @@ import {Track} from 'src/entities';
 import LocalDatabase from 'src/localdb';
 import RemoteDatabase from 'src/remotedb';
 import {
+  DatabaseSource,
   Device,
   DeviceType,
   MediaSlot,
@@ -56,24 +57,26 @@ class Database {
     this.#deviceManager = deviceManager;
   }
 
-  #getTrackLookupStrategy = (device: Device, type: TrackType) => {
+  #getTrackLookupStrategy = (device: Device, type: TrackType): LookupStrategy => {
     const isUnanalyzed = type === TrackType.AudioCD || type === TrackType.Unanalyzed;
     const requiresCdjRemote =
       device.type === DeviceType.CDJ && isUnanalyzed && this.cdjSupportsRemotedb;
 
-    return device.type === DeviceType.Rekordbox || requiresCdjRemote
-      ? LookupStrategy.Remote
-      : device.type === DeviceType.CDJ && type === TrackType.RB
-        ? LookupStrategy.Local
-        : LookupStrategy.NoneAvailable;
+    if (device.type === DeviceType.Rekordbox || requiresCdjRemote) {
+      return LookupStrategy.Remote;
+    }
+    if (device.type === DeviceType.CDJ && type === TrackType.RB) {
+      return LookupStrategy.Local;
+    }
+    return LookupStrategy.NoneAvailable;
   };
 
-  #getMediaLookupStrategy = (device: Device, slot: MediaSlot) =>
-    device.type === DeviceType.Rekordbox && slot === MediaSlot.RB
-      ? LookupStrategy.Remote
-      : device.type === DeviceType.Rekordbox
-        ? LookupStrategy.NoneAvailable
-        : LookupStrategy.Local;
+  #getMediaLookupStrategy = (device: Device, slot: MediaSlot): LookupStrategy => {
+    if (device.type === DeviceType.Rekordbox) {
+      return slot === MediaSlot.RB ? LookupStrategy.Remote : LookupStrategy.NoneAvailable;
+    }
+    return LookupStrategy.Local;
+  };
 
   /**
    * Reports weather or not the CDJs can be communicated to over the remote
@@ -100,15 +103,20 @@ class Database {
     tx.setTag('trackType', getTrackTypeName(trackType));
     tx.setTag('trackSlot', getSlotName(trackSlot));
 
-    const callOpts = {...opts, span: tx};
-
     console.log(`[METADATA_DEBUG] Database.getMetadata - getting device ensured...`);
     const device = await this.#deviceManager.getDeviceEnsured(deviceId);
     if (device === null) {
       console.log(`[METADATA_DEBUG] Database.getMetadata - device is null, returning null`);
       return null;
     }
-    console.log(`[METADATA_DEBUG] Database.getMetadata - got device: type=${device.type}, ip=${device.ip?.address}`);
+
+    // Auto-detect database source based on device model:
+    // CDJ-3000X uses OneLibrary track IDs, all others use PDB
+    const source =
+      device.name === 'CDJ-3000X' ? DatabaseSource.OneLibrary : DatabaseSource.PDB;
+    console.log(`[METADATA_DEBUG] Database.getMetadata - got device: name=${device.name}, type=${device.type}, ip=${device.ip?.address}, source=${source}`);
+
+    const callOpts = {...opts, span: tx, source};
 
     const strategy = this.#getTrackLookupStrategy(device, trackType);
     console.log(`[METADATA_DEBUG] Database.getMetadata - strategy=${LookupStrategy[strategy]}`);

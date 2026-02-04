@@ -135,6 +135,18 @@ export enum TrackType {
 }
 
 /**
+ * Specifies which database to use for track lookups.
+ *
+ * CDJ-3000 uses PDB track IDs, while CDJ-3000X (firmware 3.30+) uses
+ * OneLibrary track IDs. The two databases assign completely different IDs
+ * to the same tracks.
+ */
+export enum DatabaseSource {
+  PDB = 'pdb',
+  OneLibrary = 'onelibrary',
+}
+
+/**
  * A beat grid is a series of offsets from the start of the track. Each offset
  * indicates what count within the measure it is along with the BPM.
  */

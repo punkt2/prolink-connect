@@ -10,6 +10,7 @@ import DeviceManager from 'src/devices';
 import {fetchFile, FetchProgress} from 'src/nfs';
 import StatusEmitter from 'src/status';
 import {
+  DatabaseSource,
   Device,
   DeviceID,
   DeviceType,
@@ -20,6 +21,7 @@ import {
 import {getSlotName} from 'src/utils';
 
 import {MetadataORM} from './orm';
+import {hydrateFromOneLibrary} from './onelibrary';
 import {hydrateDatabase, HydrationProgress} from './rekordbox';
 
 /**
@@ -89,9 +91,15 @@ interface DatabaseItem {
    */
   media: MediaSlotInfo;
   /**
-   * The MetadataORM service instance for the active connection
+   * The MetadataORM for the legacy PDB database (export.pdb), or null if
+   * the PDB file was not found on the media.
    */
-  orm: MetadataORM;
+  pdbOrm: MetadataORM | null;
+  /**
+   * The MetadataORM for the OneLibrary database (exportLibrary.db), or null
+   * if the OneLibrary file was not found on the media.
+   */
+  oneLibraryOrm: MetadataORM | null;
 }
 
 /**
@@ -169,7 +177,8 @@ class LocalDatabase {
     this.#deviceManager.off('disconnected', this.#handleDeviceRemoved);
 
     for (const db of this.#dbs) {
-      db.orm.close();
+      db.pdbOrm?.close();
+      db.oneLibraryOrm?.close();
     }
     this.#dbs = [];
   }
@@ -179,12 +188,19 @@ class LocalDatabase {
    * device is removed.
    */
   #handleDeviceRemoved = (device: Device) => {
-    this.#dbs.find(db => db.media.deviceId === device.id)?.orm.close();
+    const existing = this.#dbs.find(db => db.media.deviceId === device.id);
+    if (existing) {
+      existing.pdbOrm?.close();
+      existing.oneLibraryOrm?.close();
+    }
     this.#dbs = this.#dbs.filter(db => db.media.deviceId !== device.id);
   };
 
   /**
-   * Downloads and hydrates a new in-memory sqlite database
+   * Downloads and hydrates both the OneLibrary and PDB databases into
+   * separate in-memory ORMs. Either or both may be null if the
+   * corresponding file is not present on the media. Throws if neither
+   * database can be loaded.
    */
   #hydrateDatabase = async (device: Device, slot: DatabaseSlot, media: MediaSlotInfo) => {
     console.log(`[METADATA_DEBUG] #hydrateDatabase START - deviceId=${device.id}, slot=${getSlotName(slot)}, trackCount=${media.trackCount}`);
@@ -193,68 +209,105 @@ class LocalDatabase {
     tx.setTag('slot', getSlotName(media.slot));
     tx.setData('numTracks', media.trackCount.toString());
 
-    console.log(`[METADATA_DEBUG] #hydrateDatabase - creating ORM...`);
-    const dbCreateTx = tx.startChild({op: 'setupDatabase'});
-    const orm = new MetadataORM();
-    dbCreateTx.finish();
-    console.log(`[METADATA_DEBUG] #hydrateDatabase - ORM created`);
+    const emitFetchProgress = (progress: FetchProgress) =>
+      this.#emitter.emit('fetchProgress', {device, slot, progress});
+    const emitHydrationProgress = (progress: HydrationProgress) =>
+      this.#emitter.emit('hydrationProgress', {device, slot, progress});
 
-    let pdbData = Buffer.alloc(0);
-
-    const fetchPdbData = async (path: string) => {
-      console.log(`[METADATA_DEBUG] #hydrateDatabase - fetching PDB file: ${path}...`);
-      pdbData = await fetchFile({
-        device,
-        slot,
-        path,
-        span: tx,
-        onProgress: progress =>
-          this.#emitter.emit('fetchProgress', {device, slot, progress}),
-      });
-      console.log(`[METADATA_DEBUG] #hydrateDatabase - PDB file fetched, size=${pdbData.length}`);
-
-      // Save PDB file to disk for debugging
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const debugPath = `/tmp/export-${timestamp}-device${device.id}-slot${slot}.pdb`;
-      writeFileSync(debugPath, pdbData);
-      console.log(`[METADATA_DEBUG] #hydrateDatabase - PDB file saved to ${debugPath}`);
+    // Build path lists for both databases. Rekordbox exports to both the
+    // `.PIONEER` and `PIONEER` folder depending on the filesystem (HFS vs
+    // FAT32). We try the dot-prefixed variant first on macOS since the user
+    // likely exported from the same platform.
+    const makeAttemptOrder = (filename: string) => {
+      const base = `PIONEER/rekordbox/${filename}`;
+      return process.platform === 'win32'
+        ? [base, `.${base}`]
+        : [`.${base}`, base];
     };
 
-    // Rekordbox exports to both the `.PIONEER` and `PIONEER` folder, depending
-    // on the media devices filesystem (HFS, FAT32, etc). Unfortunately there's no
-    // way for us to know the type of filesystem, so we have to try both
-    const path = 'PIONEER/rekordbox/export.pdb';
+    // -- Try OneLibrary -------------------------------------------------------
+    let oneLibraryOrm: MetadataORM | null = null;
+    const oneLibraryPaths = makeAttemptOrder('exportLibrary.db');
 
-    // Attempt to be semi-smart and first try the path coorelating to the OS
-    // they're running this on. The assumption is they may have used the same
-    // machine to export their tracks on.
-    const attemptOrder =
-      process.platform === 'win32' ? [path, `.${path}`] : [`.${path}`, path];
+    for (const olPath of oneLibraryPaths) {
+      try {
+        console.log(`[METADATA_DEBUG] #hydrateDatabase - trying OneLibrary: ${olPath}...`);
+        const olOrm = new MetadataORM();
+        const dbData = await fetchFile({
+          device,
+          slot,
+          path: olPath,
+          span: tx,
+          onProgress: emitFetchProgress,
+        });
+        console.log(`[METADATA_DEBUG] #hydrateDatabase - OneLibrary fetched, size=${dbData.length}`);
 
-    try {
-      await fetchPdbData(attemptOrder[0]);
-    } catch {
-      console.log(`[METADATA_DEBUG] #hydrateDatabase - first path failed, trying alternate...`);
-      await fetchPdbData(attemptOrder[1]);
+        await hydrateFromOneLibrary({
+          orm: olOrm,
+          dbData,
+          span: tx,
+          onProgress: emitHydrationProgress,
+        });
+        console.log(`[METADATA_DEBUG] #hydrateDatabase - OneLibrary hydrated`);
+        oneLibraryOrm = olOrm;
+        break;
+      } catch (error) {
+        console.log(`[METADATA_DEBUG] #hydrateDatabase - OneLibrary path ${olPath} failed: ${error}`);
+      }
     }
 
-    console.log(`[METADATA_DEBUG] #hydrateDatabase - hydrating database...`);
-    await hydrateDatabase({
-      orm,
-      pdbData,
-      span: tx,
-      onProgress: progress =>
-        this.#emitter.emit('hydrationProgress', {device, slot, progress}),
-    });
-    console.log(`[METADATA_DEBUG] #hydrateDatabase - database hydrated`);
+    // -- Try PDB --------------------------------------------------------------
+    let pdbOrm: MetadataORM | null = null;
+    const pdbPaths = makeAttemptOrder('export.pdb');
+
+    for (const pdbPath of pdbPaths) {
+      try {
+        console.log(`[METADATA_DEBUG] #hydrateDatabase - trying PDB: ${pdbPath}...`);
+        const pdbData = await fetchFile({
+          device,
+          slot,
+          path: pdbPath,
+          span: tx,
+          onProgress: emitFetchProgress,
+        });
+        console.log(`[METADATA_DEBUG] #hydrateDatabase - PDB fetched, size=${pdbData.length}`);
+
+        // Save PDB file to disk for debugging
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const debugPath = `/tmp/export-${timestamp}-device${device.id}-slot${slot}.pdb`;
+        writeFileSync(debugPath, pdbData);
+        console.log(`[METADATA_DEBUG] #hydrateDatabase - PDB file saved to ${debugPath}`);
+
+        const pdOrm = new MetadataORM();
+        await hydrateDatabase({
+          orm: pdOrm,
+          pdbData,
+          span: tx,
+          onProgress: emitHydrationProgress,
+        });
+        console.log(`[METADATA_DEBUG] #hydrateDatabase - PDB hydrated`);
+        pdbOrm = pdOrm;
+        break;
+      } catch (error) {
+        console.log(`[METADATA_DEBUG] #hydrateDatabase - PDB path ${pdbPath} failed: ${error}`);
+      }
+    }
+
+    // -- Verify at least one succeeded ----------------------------------------
+    if (oneLibraryOrm === null && pdbOrm === null) {
+      tx.finish();
+      throw new Error('Failed to hydrate any database (neither OneLibrary nor PDB found)');
+    }
+
     this.#emitter.emit('hydrationDone', {device, slot});
 
-    const db = {orm, media, id: getMediaId(media)};
+    const db: DatabaseItem = {pdbOrm, oneLibraryOrm, media, id: getMediaId(media)};
     this.#dbs.push(db);
 
     tx.finish();
 
-    console.log(`[METADATA_DEBUG] #hydrateDatabase END - database ready`);
+    const sources = [oneLibraryOrm && 'OneLibrary', pdbOrm && 'PDB'].filter(Boolean).join('+');
+    console.log(`[METADATA_DEBUG] #hydrateDatabase END - database ready (sources=${sources})`);
     return db;
   };
 
@@ -267,8 +320,8 @@ class LocalDatabase {
    *
    * @returns null if no rekordbox media present
    */
-  async get(deviceId: DeviceID, slot: DatabaseSlot) {
-    console.log(`[METADATA_DEBUG] LocalDatabase.get START - deviceId=${deviceId}, slot=${slot}`);
+  async get(deviceId: DeviceID, slot: DatabaseSlot, source?: DatabaseSource) {
+    console.log(`[METADATA_DEBUG] LocalDatabase.get START - deviceId=${deviceId}, slot=${slot}, source=${source ?? 'auto'}`);
     const lockKey = `${deviceId}-${slot}`;
     const lock =
       this.#slotLocks.get(lockKey) ??
@@ -314,8 +367,19 @@ class LocalDatabase {
     });
     console.log(`[METADATA_DEBUG] LocalDatabase.get - slot lock released`);
 
-    console.log(`[METADATA_DEBUG] LocalDatabase.get END - returning ORM`);
-    return db.orm;
+    // Select the appropriate ORM based on the requested source
+    let orm: MetadataORM | null;
+    if (source === DatabaseSource.PDB) {
+      orm = db.pdbOrm;
+    } else if (source === DatabaseSource.OneLibrary) {
+      orm = db.oneLibraryOrm;
+    } else {
+      // Backward compat: prefer OneLibrary, fall back to PDB
+      orm = db.oneLibraryOrm ?? db.pdbOrm;
+    }
+
+    console.log(`[METADATA_DEBUG] LocalDatabase.get END - returning ORM (source=${source ?? 'auto'}, hasOrm=${orm !== null})`);
+    return orm;
   }
 
   /**

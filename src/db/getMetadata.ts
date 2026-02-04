@@ -3,7 +3,7 @@ import {Span} from '@sentry/tracing';
 import LocalDatabase from 'src/localdb';
 import {loadAnlz} from 'src/localdb/rekordbox';
 import RemoteDatabase, {MenuTarget, Query} from 'src/remotedb';
-import {Device, DeviceID, MediaSlot, TrackType} from 'src/types';
+import {DatabaseSource, Device, DeviceID, MediaSlot, TrackType} from 'src/types';
 
 import {anlzLoader} from './utils';
 
@@ -30,7 +30,13 @@ export interface Options {
   span?: Span;
 }
 
-export async function viaRemote(remote: RemoteDatabase, opts: Required<Options>) {
+/**
+ * Options with source resolved by the caller (Database class).
+ * Note: span remains optional as it may not always be provided.
+ */
+type ResolvedOptions = Options & {source: DatabaseSource};
+
+export async function viaRemote(remote: RemoteDatabase, opts: Options) {
   const {deviceId, trackSlot, trackType, trackId, span} = opts;
 
   console.log(`[METADATA_DEBUG] viaRemote START - deviceId=${deviceId}, trackId=${trackId}, trackType=${trackType}`);
@@ -93,18 +99,18 @@ export async function viaRemote(remote: RemoteDatabase, opts: Required<Options>)
 export async function viaLocal(
   local: LocalDatabase,
   device: Device,
-  opts: Required<Options>
+  opts: ResolvedOptions
 ) {
-  const {deviceId, trackSlot, trackId} = opts;
+  const {deviceId, trackSlot, trackId, source} = opts;
 
-  console.log(`[METADATA_DEBUG] viaLocal START - deviceId=${deviceId}, trackId=${trackId}, trackSlot=${trackSlot}`);
+  console.log(`[METADATA_DEBUG] viaLocal START - deviceId=${deviceId}, trackId=${trackId}, trackSlot=${trackSlot}, source=${source}`);
 
   if (trackSlot !== MediaSlot.USB && trackSlot !== MediaSlot.SD) {
     throw new Error('Expected USB or SD slot for local database query');
   }
 
   console.log(`[METADATA_DEBUG] viaLocal - getting local database...`);
-  const orm = await local.get(deviceId, trackSlot);
+  const orm = await local.get(deviceId, trackSlot, source);
   if (orm === null) {
     console.log(`[METADATA_DEBUG] viaLocal - orm is null, returning null`);
     return null;
