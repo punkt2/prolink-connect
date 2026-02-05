@@ -234,6 +234,7 @@ class RekordboxHydrator {
     }
 
     tx.setData('items', totalItems);
+    console.log(`[METADATA_DEBUG] hydrateFromTable - ${tableName}: ${totalItems} rows`);
 
     for (const row of tableRows(table)) {
       this.#orm.insertEntity(tableName, createObject(row));
