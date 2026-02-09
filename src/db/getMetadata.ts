@@ -28,6 +28,16 @@ export interface Options {
    * The Sentry transaction span
    */
   span?: Span;
+  /**
+   * Whether to load ANLZ data (beat grid, cues, loops) from analysis files.
+   * When false, track.beatGrid and track.cueAndLoops will be null.
+   *
+   * Default: true (backward compatible - always loads ANLZ data)
+   *
+   * Set to false for metadata-only applications to improve performance by
+   * skipping NFS calls to ANLZ files.
+   */
+  loadAnlz?: boolean;
 }
 
 /**
@@ -126,12 +136,21 @@ export async function viaLocal(
   }
   console.log(`[METADATA_DEBUG] viaLocal - found track: ${track.title}`);
 
-  console.log(`[METADATA_DEBUG] viaLocal - loading ANLZ data...`);
-  const anlz = await loadAnlz(track, 'DAT', anlzLoader({device, slot: trackSlot}));
-  console.log(`[METADATA_DEBUG] viaLocal - ANLZ data loaded`);
+  // Default to true for backward compatibility
+  const shouldLoadAnlz = opts.loadAnlz !== false;
 
-  track.beatGrid = anlz.beatGrid;
-  track.cueAndLoops = anlz.cueAndLoops;
+  if (shouldLoadAnlz) {
+    console.log(`[METADATA_DEBUG] viaLocal - loading ANLZ data...`);
+    const anlz = await loadAnlz(track, 'DAT', anlzLoader({device, slot: trackSlot}));
+    console.log(`[METADATA_DEBUG] viaLocal - ANLZ data loaded`);
+
+    if (anlz !== null) {
+      track.beatGrid = anlz.beatGrid;
+      track.cueAndLoops = anlz.cueAndLoops;
+    }
+  } else {
+    console.log(`[METADATA_DEBUG] viaLocal - skipping ANLZ data (loadAnlz=false)`);
+  }
 
   console.log(`[METADATA_DEBUG] viaLocal END - returning track`);
   return track;
