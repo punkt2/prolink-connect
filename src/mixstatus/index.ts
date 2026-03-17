@@ -164,26 +164,42 @@ export class MixstatusProcessor {
    */
   #promotePlayer = (state: CDJStatus.State) => {
     const {deviceId} = state;
+    const caller = new Error().stack?.split('\n')[2]?.trim() ?? 'unknown';
+
+    console.log(
+      `[MIXSTATUS_DEBUG] promotePlayer called - deviceId=${deviceId}, trackId=${state.trackId}, onAir=${this.#onAir(state)}, isPlaying=${isPlaying(state)}, alreadyLive=${this.#livePlayers.has(deviceId)}, caller=${caller}`
+    );
 
     if (!this.#onAir(state) || !isPlaying(state)) {
+      console.log(
+        `[MIXSTATUS_DEBUG] promotePlayer SKIP (not onAir or not playing) - deviceId=${deviceId}`
+      );
       return;
     }
 
     if (this.#livePlayers.has(deviceId)) {
+      console.log(
+        `[MIXSTATUS_DEBUG] promotePlayer SKIP (already live) - deviceId=${deviceId}`
+      );
       return;
     }
 
     if (!this.#isSetActive) {
       this.#isSetActive = true;
       this.#emitter.emit('setStarted');
+      console.log(`[MIXSTATUS_DEBUG] promotePlayer - emitted setStarted`);
     }
 
     if (this.#cancelSetEnding) {
       this.#cancelSetEnding();
+      console.log(`[MIXSTATUS_DEBUG] promotePlayer - cancelled set ending`);
     }
 
     this.#livePlayers.add(deviceId);
 
+    console.log(
+      `[MIXSTATUS_DEBUG] promotePlayer EMIT nowPlaying - deviceId=${deviceId}, trackId=${state.trackId}, livePlayers=[${[...this.#livePlayers]}]`
+    );
     this.#emitter.emit('nowPlaying', state);
   };
 
